@@ -1,1 +1,170 @@
 @import "tailwindcss";
+
+@theme {
+  --font-display: "Orbitron", "Space Grotesk", ui-sans-serif, sans-serif;
+  --font-body: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+
+  --color-space-950: #04060f;
+  --color-space-900: #070b1a;
+  --color-space-800: #0b1228;
+  --color-space-700: #131c3a;
+  --color-ember-300: #fcd34d;
+  --color-ember-400: #fbbf24;
+  --color-ember-500: #f59e0b;
+  --color-ion-200: #a5f3fc;
+  --color-ion-300: #67e8f9;
+  --color-ion-400: #22d3ee;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #04060f;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(251, 191, 36, 0.35);
+  color: #fff7e6;
+}
+
+/* ---------- keyframes ---------- */
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes spin-rev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+@keyframes sun-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.07);
+    opacity: 1;
+  }
+}
+@keyframes ring-pulse {
+  0%,
+  100% {
+    opacity: 0.95;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+@keyframes blink-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.2;
+    transform: scale(0.55);
+  }
+}
+@keyframes drift-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes stat-flash {
+  0% {
+    color: #fcd34d;
+  }
+  100% {
+    color: inherit;
+  }
+}
+
+/* ---------- helper classes ---------- */
+.spin-slow {
+  animation: spin-slow 28s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.spin-rev {
+  animation: spin-rev 44s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.sun-breathe {
+  animation: sun-breathe 5.5s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ring-pulse {
+  animation: ring-pulse 2.4s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+}
+.blink-dot {
+  animation: blink-dot 1.9s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+}
+.drift-up {
+  animation: drift-up 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.planet-node {
+  cursor: pointer;
+  outline: none;
+}
+.planet-node .planet-body {
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.planet-node:hover .planet-body,
+.planet-node:focus-visible .planet-body {
+  transform: scale(1.24);
+}
+.orbit-ring {
+  transition: stroke 0.35s ease, opacity 0.35s ease;
+}
+
+.vignette {
+  background: radial-gradient(ellipse at center, transparent 42%, rgba(2, 4, 12, 0.62) 100%);
+}
+
+/* thin scrollbar for the data panel */
+.panel-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: rgba(103, 232, 249, 0.18);
+  border-radius: 3px;
+}
+.panel-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .spin-slow,
+  .spin-rev,
+  .sun-breathe,
+  .ring-pulse,
+  .blink-dot,
+  .drift-up {
+    animation: none !important;
+  }
+  .planet-node .planet-body {
+    transition: none;
+  }
+}
