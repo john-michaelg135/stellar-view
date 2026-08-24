@@ -113,7 +113,7 @@ export default function App() {
           <div className="h-10 w-[3px] rounded-full bg-gradient-to-b from-ember-400 via-ember-500/60 to-transparent" />
           <div>
             <h1 className="font-display text-lg font-extrabold leading-none tracking-[0.3em] text-slate-100 sm:text-xl">
-              ORRERY<span className="text-ember-400">·08</span>
+              STELLAR<span className="text-ember-400">VIEW</span>
             </h1>
             <p className="mt-1.5 text-[9.5px] font-medium uppercase tracking-[0.3em] text-slate-400">
               Interactive atlas of the Solar System
