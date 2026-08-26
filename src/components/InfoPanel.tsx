@@ -91,6 +91,7 @@ export default function InfoPanel({ body, onClose }: Props) {
               <p className="mt-5 text-[10px] leading-relaxed tracking-wide text-slate-500">
                 Sizes and distances compressed for legibility — not to scale. Press{" "}
                 <span className="text-slate-400">Esc</span> to release this world.
+                {shown.kind !== "belt" && <> Double-click or press <span className="text-slate-400">Z</span> to zoom in.</>}
               </p>
             </div>
           </div>

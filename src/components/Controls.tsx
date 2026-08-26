@@ -1,11 +1,14 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SPEED_PRESETS } from "../data/planets";
 
 interface Props {
   playing: boolean;
+  rewinding: boolean;
   speed: number;
   showOrbits: boolean;
   showLabels: boolean;
   onTogglePlay: () => void;
+  onToggleRewind: () => void;
   onSpeedChange: (s: number) => void;
   onToggleOrbits: () => void;
   onToggleLabels: () => void;
@@ -16,20 +19,149 @@ function Divider() {
   return <span className="hidden h-8 w-px bg-white/10 sm:block" aria-hidden="true" />;
 }
 
+const IDLE_TIMEOUT = 3000; // ms before auto-collapse
+
 export default function Controls({
   playing,
+  rewinding,
   speed,
   showOrbits,
   showLabels,
   onTogglePlay,
+  onToggleRewind,
   onSpeedChange,
   onToggleOrbits,
   onToggleLabels,
   onReset,
 }: Props) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+
+  const resetTimer = useCallback(() => {
+    if (pinned) return;
+    setCollapsed(false);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCollapsed(true), IDLE_TIMEOUT);
+  }, [pinned]);
+
+  // start the idle timer on mount
+  useEffect(() => {
+    resetTimer();
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [resetTimer]);
+
+  // any pointer movement near the bottom reveals the dock
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const threshold = window.innerHeight - 120;
+      if (e.clientY >= threshold) {
+        resetTimer();
+      }
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => window.removeEventListener("pointermove", onMove);
+  }, [resetTimer]);
+
+  // reveal on any keyboard shortcut (space, arrows, etc.)
+  useEffect(() => {
+    const onKey = () => resetTimer();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [resetTimer]);
+
+  const handleInteraction = () => {
+    resetTimer();
+  };
+
+  const togglePin = () => {
+    setPinned((p) => {
+      if (!p) {
+        // pinning — clear the collapse timer and show
+        if (timerRef.current) clearTimeout(timerRef.current);
+        setCollapsed(false);
+      } else {
+        // unpinning — restart idle timer
+        resetTimer();
+      }
+      return !p;
+    });
+  };
+
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-30 flex flex-col items-center gap-2.5 px-3 sm:bottom-5">
+    <>
+      {/* collapsed peek indicator — fixed independently so it never gets clipped */}
+      <div
+        className={`pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center transition-all duration-500 ease-out sm:bottom-5 ${
+          collapsed ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
+        }`}
+      >
+        <div
+          className={`pointer-events-auto flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-space-900/80 px-4 py-1.5 backdrop-blur-sm transition-colors hover:border-white/20 ${
+            collapsed ? "" : "pointer-events-none"
+          }`}
+          onClick={() => { setCollapsed(false); resetTimer(); }}
+          role="button"
+          aria-label="Show controls"
+        >
+          <span className={`h-2 w-2 rounded-full ${playing ? "bg-ember-400 animate-pulse" : rewinding ? "bg-ion-400 animate-pulse" : "bg-slate-500"}`} />
+          <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-slate-300">
+            {rewinding ? "Rewinding" : playing ? "Playing" : "Paused"} · {speed}×
+          </span>
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="none" className="ml-1 text-slate-500" aria-hidden="true">
+            <path d="M1 5l4-4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+      </div>
+
+      {/* main dock */}
+      <div
+        ref={dockRef}
+        onPointerEnter={handleInteraction}
+        onClick={handleInteraction}
+        className={`pointer-events-none fixed inset-x-0 bottom-4 z-30 flex flex-col items-center gap-2.5 px-3 transition-all duration-500 ease-out sm:bottom-5 ${
+          collapsed ? "translate-y-full opacity-0" : "translate-y-0 opacity-100"
+        }`}
+      >
+
       <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-xl border border-white/10 bg-space-900/90 px-4 py-3 shadow-[0_16px_60px_rgba(0,0,0,0.55)] backdrop-blur-md sm:px-5">
+        {/* pin toggle */}
+        <button
+          onClick={togglePin}
+          aria-label={pinned ? "Unpin controls (auto-hide)" : "Pin controls (always visible)"}
+          title={pinned ? "Unpin (auto-hide)" : "Pin (always visible)"}
+          className={`flex h-8 w-8 items-center justify-center rounded-full border transition-colors duration-300 ${
+            pinned
+              ? "border-ember-400/50 bg-ember-400/10 text-ember-300"
+              : "border-white/10 text-slate-500 hover:border-white/20 hover:text-slate-300"
+          }`}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M9.828 1.172a2 2 0 0 1 2.828 0l2.172 2.172a2 2 0 0 1 0 2.828l-3.586 3.586-.707.707L9.12 11.88l-3.535 3.535a.5.5 0 0 1-.707-.707l3.535-3.535-1.414-1.414L3.464 13.3a.5.5 0 0 1-.707-.707L6.293 9.06 4.879 7.646l-.707.707L.636 11.89a.5.5 0 0 1-.707-.707l3.536-3.536.707-.707L9.828 1.172z" />
+          </svg>
+        </button>
+
+        <Divider />
+
+        {/* rewind */}
+        <button
+          onClick={onToggleRewind}
+          aria-label={rewinding ? "Stop rewinding" : "Rewind simulation"}
+          className={`flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 ${
+            rewinding
+              ? "bg-ion-400 text-space-950 shadow-[0_0_24px_rgba(34,211,238,0.45)] hover:bg-ion-300"
+              : "border border-ion-400/60 bg-ion-400/10 text-ion-300 hover:bg-ion-400/20"
+          }`}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8.5 1.8a1 1 0 0 0-1.52-.86l-5.5 6.2a1 1 0 0 0 0 1.72l5.5 6.2A1 1 0 0 0 8.5 14.2V1.8z" />
+            <path d="M15 1.8a1 1 0 0 0-1.52-.86l-5.5 6.2a1 1 0 0 0 0 1.72l5.5 6.2A1 1 0 0 0 15 14.2V1.8z" />
+          </svg>
+        </button>
+
         {/* play / pause */}
         <button
           onClick={onTogglePlay}
@@ -122,9 +254,10 @@ export default function Controls({
         </button>
       </div>
 
-      <p className="pointer-events-none hidden text-[9.5px] font-medium uppercase tracking-[0.26em] text-slate-500 md:block">
-        Space — play/pause · 1–8 — worlds · ← → — velocity · O — orbits · Esc — close
+      <p className={`pointer-events-none hidden text-[9.5px] font-medium uppercase tracking-[0.26em] text-slate-500 transition-opacity duration-300 md:block ${collapsed ? "opacity-0" : "opacity-100"}`}>
+        Space — play/pause · R — rewind · 1–8 — worlds · ← → — velocity · O — orbits · Esc — close
       </p>
     </div>
+    </>
   );
 }

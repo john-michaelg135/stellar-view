@@ -134,6 +134,10 @@ body {
 .planet-node:focus-visible .planet-body {
   transform: scale(1.24);
 }
+
+svg [role="button"] {
+  outline: none;
+}
 .orbit-ring {
   transition: stroke 0.35s ease, opacity 0.35s ease;
 }

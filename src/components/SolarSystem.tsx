@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { PLANETS, SUN, type BodyData } from "../data/planets";
+import { ASTEROID_BELT, BELT_INNER_RADIUS, BELT_OUTER_RADIUS, PLANETS, SUN, type BodyData } from "../data/planets";
 
 const C = 500; // viewBox center
 const TAU = Math.PI * 2;
@@ -7,11 +7,13 @@ const TRAIL = TAU * 0.065; // trail arc = 6.5% of any orbit
 
 const polar = (r: number, a: number) => ({
   x: C + r * Math.cos(a),
-  y: C + r * Math.sin(a),
+  y: C - r * Math.sin(a),
 });
 
-const angleOf = (p: BodyData, simDays: number) =>
-  p.initialAngle - TAU * ((simDays % p.periodDays) / p.periodDays);
+const angleOf = (p: BodyData, simDays: number) => {
+  const frac = ((simDays % p.periodDays) + p.periodDays) % p.periodDays;
+  return p.initialAngle + TAU * (frac / p.periodDays);
+};
 
 const shortDistance = (p: BodyData) => {
   if (p.kind === "star") return "G2V star";
@@ -19,14 +21,41 @@ const shortDistance = (p: BodyData) => {
   return `${(p.distanceMkm / 1000).toFixed(2)}B km`;
 };
 
+/** Simple seeded PRNG for deterministic asteroid positions */
+function seededRandom(seed: number) {
+  let s = seed;
+  return () => {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    return (s >>> 0) / 0xffffffff;
+  };
+}
+
+// Pre-generate asteroid positions (deterministic)
+const ASTEROID_COUNT = 180;
+const asteroids: { r: number; baseAngle: number; size: number; opacity: number; speed: number }[] = [];
+{
+  const rng = seededRandom(42);
+  for (let i = 0; i < ASTEROID_COUNT; i++) {
+    const r = BELT_INNER_RADIUS + rng() * (BELT_OUTER_RADIUS - BELT_INNER_RADIUS);
+    const baseAngle = rng() * TAU;
+    const size = 0.8 + rng() * 1.8;
+    const opacity = 0.25 + rng() * 0.5;
+    // Each asteroid gets a slightly different period (3.2–5.9 years range)
+    const speed = 0.7 + rng() * 0.6; // multiplier on the belt's average period
+    asteroids.push({ r, baseAngle, size, opacity, speed });
+  }
+}
+
 interface Props {
   simDays: number;
   selectedId: string | null;
   hoveredId: string | null;
   showOrbits: boolean;
   showLabels: boolean;
+  zoomed: boolean;
   onSelect: (id: string | null) => void;
   onHover: (id: string | null) => void;
+  onDoubleClick: (id: string) => void;
 }
 
 export default function SolarSystem({
@@ -35,8 +64,10 @@ export default function SolarSystem({
   hoveredId,
   showOrbits,
   showLabels,
+  zoomed,
   onSelect,
   onHover,
+  onDoubleClick,
 }: Props) {
   const renderPlanet = (p: BodyData) => {
     const a = angleOf(p, simDays);
@@ -46,7 +77,7 @@ export default function SolarSystem({
     const hovered = hoveredId === p.id;
 
     // fading motion trail
-    const s0 = polar(p.orbitRadius, a + TRAIL);
+    const s0 = polar(p.orbitRadius, a - TRAIL);
     const trailPath = `M ${s0.x.toFixed(2)} ${s0.y.toFixed(2)} A ${p.orbitRadius} ${p.orbitRadius} 0 0 0 ${pos.x.toFixed(2)} ${pos.y.toFixed(2)}`;
 
     // saturn-style rings (split so the front half passes over the globe)
@@ -104,6 +135,11 @@ export default function SolarSystem({
           onClick={(e) => {
             e.stopPropagation();
             onSelect(p.id);
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            onSelect(p.id);
+            onDoubleClick(p.id);
           }}
           onMouseEnter={() => onHover(p.id)}
           onMouseLeave={() => onHover(null)}
@@ -197,7 +233,9 @@ export default function SolarSystem({
     <svg
       viewBox="0 0 1000 1000"
       preserveAspectRatio="xMidYMid meet"
-      className="absolute inset-0 h-full w-full"
+      className={`absolute inset-0 h-full w-full transition-all duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        zoomed ? "scale-[4] opacity-0 blur-md" : "scale-100 opacity-100 blur-0"
+      }`}
       onClick={() => onSelect(null)}
       role="application"
       aria-label="Solar system map. Eight planets orbit the Sun; select any body for details."
@@ -235,6 +273,11 @@ export default function SolarSystem({
         onClick={(e) => {
           e.stopPropagation();
           onSelect("sun");
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onSelect("sun");
+          onDoubleClick("sun");
         }}
         onMouseEnter={() => onHover("sun")}
         onMouseLeave={() => onHover(null)}
@@ -288,6 +331,107 @@ export default function SolarSystem({
           </text>
         )}
       </g>
+
+      {/* ------- Asteroid Belt ------- */}
+      {(() => {
+        const beltSelected = selectedId === "asteroid-belt";
+        const beltHovered = hoveredId === "asteroid-belt";
+        const highlight = beltSelected || beltHovered;
+        return (
+          <g
+            className="cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect("asteroid-belt");
+            }}
+            onMouseEnter={() => onHover("asteroid-belt")}
+            onMouseLeave={() => onHover(null)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                onSelect("asteroid-belt");
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="Asteroid Belt — main belt between Mars and Jupiter containing over one million objects."
+          >
+            {/* invisible hit area ring */}
+            <circle
+              cx={C}
+              cy={C}
+              r={ASTEROID_BELT.orbitRadius}
+              fill="none"
+              stroke="transparent"
+              strokeWidth={BELT_OUTER_RADIUS - BELT_INNER_RADIUS}
+            />
+            {/* belt boundary guides when highlighted */}
+            {highlight && (
+              <>
+                <circle cx={C} cy={C} r={BELT_INNER_RADIUS} fill="none" stroke={ASTEROID_BELT.color} strokeOpacity={0.25} strokeWidth={0.7} strokeDasharray="4 8" />
+                <circle cx={C} cy={C} r={BELT_OUTER_RADIUS} fill="none" stroke={ASTEROID_BELT.color} strokeOpacity={0.25} strokeWidth={0.7} strokeDasharray="4 8" />
+              </>
+            )}
+            {/* asteroids */}
+            {asteroids.map((ast, i) => {
+              const angle = ast.baseAngle + TAU * (((simDays / (ASTEROID_BELT.periodDays * ast.speed)) % 1 + 1) % 1);
+              const pos = polar(ast.r, angle);
+              return (
+                <circle
+                  key={i}
+                  cx={pos.x}
+                  cy={pos.y}
+                  r={highlight ? ast.size * 1.3 : ast.size}
+                  fill={highlight ? ASTEROID_BELT.colorLight : ASTEROID_BELT.color}
+                  opacity={highlight ? Math.min(ast.opacity + 0.35, 1) : ast.opacity}
+                />
+              );
+            })}
+            {/* selected ring pulse */}
+            {beltSelected && (
+              <g className="spin-slow">
+                <circle
+                  cx={C}
+                  cy={C}
+                  className="ring-pulse"
+                  r={ASTEROID_BELT.orbitRadius}
+                  fill="none"
+                  stroke={ASTEROID_BELT.color}
+                  strokeWidth={1.2}
+                  strokeDasharray="5 12"
+                  strokeLinecap="round"
+                />
+              </g>
+            )}
+            {/* hover chip */}
+            {highlight && (
+              <g transform={`translate(${C} ${C - BELT_OUTER_RADIUS - 14})`} pointerEvents="none">
+                <rect x={-82} y={-27} width={164} height={23} rx={5} fill="#0b1228" fillOpacity={0.94} stroke={ASTEROID_BELT.color} strokeOpacity={0.55} strokeWidth={1} />
+                <text x={0} y={-11.5} textAnchor="middle" fontSize={12.5} fill="#e6ecff" className="font-body" letterSpacing={0.4}>
+                  Asteroid Belt · Main belt
+                </text>
+              </g>
+            )}
+            {/* label */}
+            {showLabels && (
+              <text
+                x={C}
+                y={C - BELT_OUTER_RADIUS - 6}
+                textAnchor="middle"
+                fontSize={12.5}
+                letterSpacing={2.4}
+                fill={beltSelected ? ASTEROID_BELT.colorLight : "#9fadd2"}
+                fontWeight={beltSelected ? 700 : 500}
+                className="font-body uppercase pointer-events-none"
+                opacity={highlight ? 1 : 0}
+              >
+                Asteroid Belt
+              </text>
+            )}
+          </g>
+        );
+      })()}
 
       {PLANETS.map(renderPlanet)}
     </svg>

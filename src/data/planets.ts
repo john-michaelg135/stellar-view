@@ -1,7 +1,7 @@
 export interface BodyData {
   id: string;
   name: string;
-  kind: "star" | "rocky" | "gas" | "ice";
+  kind: "star" | "rocky" | "gas" | "ice" | "belt";
   typeLabel: string;
   /** display radius in viewBox units (not to scale) */
   displayRadius: number;
@@ -231,6 +231,136 @@ export const PLANETS: BodyData[] = [
     moon: { name: "Triton", radius: 24, periodDays: 14.1, size: 2.4, color: "#cfe0ee" },
   },
 ];
+
+export const ASTEROID_BELT: BodyData = {
+  id: "asteroid-belt",
+  name: "Asteroid Belt",
+  kind: "belt",
+  typeLabel: "Main asteroid belt",
+  displayRadius: 0,
+  orbitRadius: 257, // midpoint between Mars (208) and Jupiter (306)
+  periodDays: 1682, // ~4.6 yr — average for main belt (similar to Ceres)
+  initialAngle: 0,
+  color: "#a89070",
+  colorLight: "#d4bfa8",
+  colorDark: "#6b5540",
+  diameterKm: 329_000_000, // width of belt (~2.0 to 3.3 AU)
+  distanceMkm: 478,
+  distanceLabel: "329–478 million km",
+  periodLabel: "3.2–5.9 Earth years",
+  dayLength: "Varies (5–24 hours typical)",
+  moons: 0,
+  temp: "−73 °C average",
+  fact: "Despite Hollywood's depictions, the belt is mostly empty space — spacecraft pass through routinely without incident. It contains over a million objects larger than 1 km, yet their total mass is just 4% of our Moon.",
+};
+
+/** Inner and outer orbital radii of the belt (viewBox units) */
+export const BELT_INNER_RADIUS = 230;
+export const BELT_OUTER_RADIUS = 284;
+
+/**
+ * Accurate planetary positions using JPL's Keplerian Elements (Table 1).
+ * Valid for 1800 AD – 2050 AD.
+ * Source: https://ssd.jpl.nasa.gov/planets/approx_pos.html
+ *
+ * For each planet we store:
+ *   [L0, Ldot, e0, edot, wbar0, wbardot]
+ * Where:
+ *   L = mean longitude (deg), Ldot = rate (deg/century)
+ *   e = eccentricity (rad), edot = rate (rad/century)
+ *   wbar = longitude of perihelion (deg), wbardot = rate (deg/century)
+ */
+interface OrbitalElements {
+  L0: number; Ldot: number;
+  e0: number; edot: number;
+  wbar0: number; wbardot: number;
+}
+
+const JPL_ELEMENTS: Record<string, OrbitalElements> = {
+  mercury: { L0: 252.25032350, Ldot: 149472.67411175, e0: 0.20563593, edot: 0.00001906, wbar0: 77.45779628, wbardot: 0.16047689 },
+  venus:   { L0: 181.97909950, Ldot:  58517.81538729, e0: 0.00677672, edot: -0.00004107, wbar0: 131.60246718, wbardot: 0.00268329 },
+  earth:   { L0: 100.46457166, Ldot:  35999.37244981, e0: 0.01671123, edot: -0.00004392, wbar0: 102.93768193, wbardot: 0.32327364 },
+  mars:    { L0:  -4.55343205, Ldot:  19140.30268499, e0: 0.09339410, edot: 0.00007882, wbar0: -23.94362959, wbardot: 0.44441088 },
+  jupiter: { L0:  34.39644051, Ldot:   3034.74612775, e0: 0.04838624, edot: -0.00013253, wbar0: 14.72847983, wbardot: 0.21252668 },
+  saturn:  { L0:  49.95424423, Ldot:   1222.49362201, e0: 0.05386179, edot: -0.00050991, wbar0: 92.59887831, wbardot: -0.41897216 },
+  uranus:  { L0: 313.23810451, Ldot:    428.48202785, e0: 0.04725744, edot: -0.00004397, wbar0: 170.95427630, wbardot: 0.40805281 },
+  neptune: { L0: -55.12002969, Ldot:    218.45945325, e0: 0.00859048, edot: 0.00005105, wbar0: 44.96476227, wbardot: -0.32241464 },
+};
+
+/** Centuries elapsed since J2000.0 epoch (Jan 1, 2000 12:00 TT) */
+function centuriesSinceJ2000(): number {
+  const j2000 = Date.UTC(2000, 0, 1, 12, 0, 0);
+  const now = Date.now();
+  return (now - j2000) / (86_400_000 * 36525);
+}
+
+/** Normalize angle to [0, 360) */
+function normDeg(d: number): number {
+  return ((d % 360) + 360) % 360;
+}
+
+/** Solve Kepler's equation: M = E - e*sin(E), returns E in degrees */
+function solveKepler(M_deg: number, e: number): number {
+  const eStar = e * (180 / Math.PI); // e in degrees for the formula
+  let E = M_deg + eStar * Math.sin((M_deg * Math.PI) / 180);
+  for (let i = 0; i < 20; i++) {
+    const dM = M_deg - (E - eStar * Math.sin((E * Math.PI) / 180));
+    const dE = dM / (1 - e * Math.cos((E * Math.PI) / 180));
+    E += dE;
+    if (Math.abs(dE) < 1e-6) break;
+  }
+  return E;
+}
+
+/**
+ * Compute the heliocentric ecliptic longitude of a planet (in radians)
+ * for the current date, using JPL Keplerian elements + Kepler's equation.
+ */
+function computeTrueLongitude(planetId: string): number {
+  const el = JPL_ELEMENTS[planetId];
+  if (!el) return 0;
+
+  const T = centuriesSinceJ2000();
+
+  // Current elements
+  const L = normDeg(el.L0 + el.Ldot * T);       // mean longitude (deg)
+  const e = el.e0 + el.edot * T;                  // eccentricity
+  const wbar = normDeg(el.wbar0 + el.wbardot * T); // longitude of perihelion (deg)
+
+  // Mean anomaly
+  const M = normDeg(L - wbar);
+
+  // Solve Kepler's equation for eccentric anomaly E
+  const E = solveKepler(M, e);
+
+  // True anomaly ν from E
+  const E_rad = (E * Math.PI) / 180;
+  const sinV = (Math.sqrt(1 - e * e) * Math.sin(E_rad)) / (1 - e * Math.cos(E_rad));
+  const cosV = (Math.cos(E_rad) - e) / (1 - e * Math.cos(E_rad));
+  const nu = Math.atan2(sinV, cosV); // true anomaly (radians)
+
+  // True longitude = ν + ω̃ (in radians)
+  const wbar_rad = (wbar * Math.PI) / 180;
+  const trueLong = nu + wbar_rad;
+
+  return trueLong;
+}
+
+/**
+ * Compute `initialAngle` for a planet so that at simDays=0 the planet
+ * is at its true heliocentric longitude for today's date.
+ *
+ * The SolarSystem renderer uses: angle = initialAngle - TAU * (simDays / periodDays)
+ * At simDays=0, angle = initialAngle. So initialAngle = trueLongitude.
+ */
+function computeInitialAngle(planetId: string): number {
+  return computeTrueLongitude(planetId);
+}
+
+// Apply accurate positions to all planets
+for (const planet of PLANETS) {
+  planet.initialAngle = computeInitialAngle(planet.id);
+}
 
 /** Simulation baseline: Earth-days of simulated time per real second at 1× speed. */
 export const BASE_DAYS_PER_SEC = 20;

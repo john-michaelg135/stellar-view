@@ -1,40 +1,51 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Starfield from "./components/Starfield";
 import SolarSystem from "./components/SolarSystem";
+import PlanetDetail from "./components/PlanetDetail";
 import InfoPanel from "./components/InfoPanel";
 import Controls from "./components/Controls";
-import { BASE_DAYS_PER_SEC, PLANETS, SPEED_PRESETS, SUN } from "./data/planets";
+import { BASE_DAYS_PER_SEC, ASTEROID_BELT, PLANETS, SPEED_PRESETS, SUN } from "./data/planets";
 import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
 
 export default function App() {
   const reduced = usePrefersReducedMotion();
 
-  // honor prefers-reduced-motion: the orrery starts at rest, ready to be played
   const [playing, setPlaying] = useState<boolean>(
     () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
+  const [rewinding, setRewinding] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [simDays, setSimDays] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [showOrbits, setShowOrbits] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
+  const [zoomed, setZoomed] = useState(false);
+  const [zoomKey, setZoomKey] = useState(0);
 
   const simRef = useRef(0);
   const playingRef = useRef(playing);
+  const rewindingRef = useRef(rewinding);
   const speedRef = useRef(speed);
+  const zoomedRef = useRef(zoomed);
+  const selectedIdRef = useRef(selectedId);
   playingRef.current = playing;
+  rewindingRef.current = rewinding;
   speedRef.current = speed;
+  zoomedRef.current = zoomed;
+  selectedIdRef.current = selectedId;
 
-  // simulation clock — the single heartbeat driving every orbit
+  // simulation clock
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
     const loop = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
-      if (playingRef.current) {
-        simRef.current += dt * BASE_DAYS_PER_SEC * speedRef.current;
+      if (playingRef.current || rewindingRef.current) {
+        const direction = rewindingRef.current ? -1 : 1;
+        simRef.current += dt * BASE_DAYS_PER_SEC * speedRef.current * direction;
+        if (simRef.current < 0) simRef.current = 0;
         setSimDays(simRef.current);
       }
       raf = requestAnimationFrame(loop);
@@ -46,16 +57,42 @@ export default function App() {
   const reset = () => {
     simRef.current = 0;
     setSimDays(0);
+    setRewinding(false);
   };
 
-  // keyboard transport
+  const toggleRewind = () => {
+    setRewinding((r) => {
+      if (!r) setPlaying(false);
+      return !r;
+    });
+  };
+
+  const zoomIn = useCallback((id?: string) => {
+    const target = id ?? selectedIdRef.current;
+    if (target && target !== "asteroid-belt") {
+      setSelectedId(target);
+      setZoomKey((k) => k + 1);
+      setZoomed(true);
+    }
+  }, []);
+
+  const zoomOut = useCallback(() => {
+    setZoomed(false);
+  }, []);
+
+  // keyboard transport (uses refs to avoid stale closures)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === " ") {
         e.preventDefault();
+        setRewinding(false);
         setPlaying((p) => !p);
       } else if (e.key === "Escape") {
-        setSelectedId(null);
+        if (zoomedRef.current) {
+          setZoomed(false);
+        } else {
+          setSelectedId(null);
+        }
       } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
         e.preventDefault();
         setSpeed((s) => SPEED_PRESETS[Math.min(SPEED_PRESETS.indexOf(s) + 1, SPEED_PRESETS.length - 1)]);
@@ -70,13 +107,21 @@ export default function App() {
         setShowOrbits((v) => !v);
       } else if (e.key.toLowerCase() === "l") {
         setShowLabels((v) => !v);
+      } else if (e.key.toLowerCase() === "r") {
+        toggleRewind();
+      } else if (e.key.toLowerCase() === "z") {
+        if (zoomedRef.current) {
+          setZoomed(false);
+        } else {
+          zoomIn();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [zoomIn]);
 
-  const selectedBody = PLANETS.find((p) => p.id === selectedId) ?? (selectedId === "sun" ? SUN : null);
+  const selectedBody = PLANETS.find((p) => p.id === selectedId) ?? (selectedId === "sun" ? SUN : selectedId === "asteroid-belt" ? ASTEROID_BELT : null);
 
   // mission clock readouts
   const days = Math.floor(simDays);
@@ -86,25 +131,37 @@ export default function App() {
   const subClock =
     years >= 1 ? `≈ ${years.toFixed(2)} yr elapsed` : `${Math.floor(simDays * 24).toLocaleString("en-US")} h elapsed`;
 
+  const simDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + Math.floor(simDays));
+    return d;
+  }, [days]);
+
   return (
     <div className="relative h-full w-full select-none overflow-hidden bg-space-950 font-body text-slate-200">
-      {/* layered deep-space backdrop */}
       <Starfield simRef={simRef} reduced={reduced} />
       <div className="vignette pointer-events-none absolute inset-0" aria-hidden="true" />
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-space-950/90 via-space-950/35 to-transparent"
-        aria-hidden="true"
-      />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-space-950/90 via-space-950/35 to-transparent" aria-hidden="true" />
 
-      {/* the orrery itself */}
       <SolarSystem
         simDays={simDays}
         selectedId={selectedId}
         hoveredId={hoveredId}
         showOrbits={showOrbits}
         showLabels={showLabels}
+        zoomed={zoomed}
         onSelect={setSelectedId}
         onHover={setHoveredId}
+        onDoubleClick={zoomIn}
+      />
+
+      {/* planet close-up overlay — always mounted when zoomed to handle exit animation */}
+      <PlanetDetail
+        key={zoomKey}
+        body={selectedBody}
+        simDays={simDays}
+        open={zoomed}
+        onClose={zoomOut}
       />
 
       {/* masthead */}
@@ -132,9 +189,11 @@ export default function App() {
         <p className="mt-1 text-[9.5px] uppercase tracking-[0.18em] text-slate-500 tabular-nums">
           {subClock} · rate {speed}×
         </p>
+        <p className="mt-2 text-[10px] font-medium tracking-[0.15em] text-slate-400 tabular-nums">
+          {simDate.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+        </p>
       </div>
 
-      {/* invitation — only before a world is chosen */}
       {!selectedBody && (
         <div className="pointer-events-none absolute inset-x-0 bottom-28 z-20 flex justify-center px-4">
           <div className="drift-up flex items-center gap-2.5 rounded-full border border-white/10 bg-space-900/85 px-4 py-2 backdrop-blur-sm">
@@ -146,14 +205,16 @@ export default function App() {
         </div>
       )}
 
-      <InfoPanel body={selectedBody} onClose={() => setSelectedId(null)} />
+      <InfoPanel body={selectedBody} onClose={() => { setZoomed(false); setSelectedId(null); }} />
 
       <Controls
         playing={playing}
+        rewinding={rewinding}
         speed={speed}
         showOrbits={showOrbits}
         showLabels={showLabels}
-        onTogglePlay={() => setPlaying((p) => !p)}
+        onTogglePlay={() => { setRewinding(false); setPlaying((p) => !p); }}
+        onToggleRewind={toggleRewind}
         onSpeedChange={setSpeed}
         onToggleOrbits={() => setShowOrbits((v) => !v)}
         onToggleLabels={() => setShowLabels((v) => !v)}
